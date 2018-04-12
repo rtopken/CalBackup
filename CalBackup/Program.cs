@@ -19,7 +19,7 @@ namespace CalBackup
         public static string strSrvURI = "https://outlook.office365.com";
         public static string strDisplayName = "";
         public static string strSMTPAddr = "";
-        
+        public static bool bCreateHidden = false;
 
 
         static void Main(string[] args)
@@ -56,22 +56,24 @@ namespace CalBackup
                         }
                     }
 
+                    if (args[i].ToUpper() == "-H" || args[i].ToUpper() == "/H")
+                    {
+                        bCreateHidden = true;
+                    }
+
                     if (args[i].ToUpper() == "-?" || args[i].ToUpper() == "/?") // display command switch help
                     {
+                        ShowInfo();
                         ShowHelp();
                         return;
                     }
                 }
             }
 
+            ShowInfo();
+
             exService = new ExchangeService(ExchangeVersion.Exchange2013_SP1);
             exService.UseDefaultCredentials = false;
-
-            Console.WriteLine("");
-            Console.WriteLine("=========");
-            Console.WriteLine("CalBackup");
-            Console.WriteLine("=========");
-            Console.WriteLine("Backs up Calendar Items to the CalBackup subfolder under Calendar.\r\n");
 
             Console.Write("Press <ENTER> to enter credentials.");
             Console.ReadLine();
@@ -180,18 +182,29 @@ namespace CalBackup
             return;
         }
 
+        public static void ShowInfo()
+        {
+            Console.WriteLine("");
+            Console.WriteLine("=========");
+            Console.WriteLine("CalBackup");
+            Console.WriteLine("=========");
+            Console.WriteLine("Backs up Calendar Items to the CalBackup subfolder under the Calendar folder.\r\n");
+        }
+
         public static void ShowHelp()
         {
             Console.WriteLine("Usage:");
-            Console.WriteLine("CalBackup [-M <SMTP Address>] [-?]");
+            Console.WriteLine("CalBackup [-M <SMTP Address>] [-H] [-?]");
             Console.WriteLine("");
             Console.WriteLine("-M   [Mailbox - will connect to the mailbox and perform the backup.]");
+            Console.WriteLine("-H   [Create and use a Hidden CalBackup subfolder under the Calendar folder.]");
             Console.WriteLine("-?   [Shows this usage information.]");
             Console.WriteLine("");
         }
 
         public static void CreateBackupFld()
         {
+            Folder fldBack = null;
             Folder fld = new Folder(exService);
             fld.DisplayName = "CalBackup";
             bool bEmpty = false;
@@ -219,7 +232,20 @@ namespace CalBackup
                     Console.WriteLine("\r\nFinished removing previous backup.");
                 }
             }
-            fldCalBackup = fld;
+
+            if (bCreateHidden)
+            {
+                ExtendedPropertyDefinition propHidden = new ExtendedPropertyDefinition(0x10f4, MapiPropertyType.Boolean);
+                PropertySet pSet = new PropertySet(propHidden);
+                fldBack = Folder.Bind(exService, fld.Id, pSet);
+                fldBack.SetExtendedProperty(propHidden, true);
+                fldBack.Update();
+                fldCalBackup = fldBack;
+            }
+            else
+            {
+                fldCalBackup = fld;
+            }
         }
 
         public static bool EmptyFolder(Folder fld)
