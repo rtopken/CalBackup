@@ -13,13 +13,13 @@ namespace CalBackup
     {
         public static ExchangeService exService;
         public static Folder fldCalBackup = null;
+        public static CalendarFolder fldCalRestore = null;
         public static string strClientID = "535ee24f-50a9-41e5-ba24-acbb4a44a662"; 
         public static string strRedirURI = "https://CalBackup";
         public static string strAuthCommon = "https://login.microsoftonline.com/common";
         public static string strSrvURI = "https://outlook.office365.com";
         public static string strDisplayName = "";
         public static string strSMTPAddr = "";
-        public static bool bCreateHidden = false;
         public static bool bRestore = false;
         public static int cItems = 0;
 
@@ -37,7 +37,7 @@ namespace CalBackup
             {
                 for (int i = 0; i < args.Length; i++)
                 {
-                    if (args[i].ToUpper() == "-M" || args[i].ToUpper() == "/M") // move mode to move problem items out to the CalVerifier folder
+                    if (args[i].ToUpper() == "-M" || args[i].ToUpper() == "/M") // mailbox mode - use impersonation to get to another mailbox
                     {
                         if (args[i + 1].Length > 0)
                         {
@@ -51,17 +51,10 @@ namespace CalBackup
                             return;
                         }
                     }
-
-                    if (args[i].ToUpper() == "-H" || args[i].ToUpper() == "/H")
-                    {
-                        bCreateHidden = true;
-                    }
-
                     if (args[i].ToUpper() == "-R" || args[i].ToUpper() == "/R")
                     {
                         bRestore = true;
                     }
-
                     if (args[i].ToUpper() == "-?" || args[i].ToUpper() == "/?") // display command switch help
                     {
                         ShowInfo();
@@ -140,27 +133,35 @@ namespace CalBackup
 
             // Get or create the backup folder...
             GetBackupFld();
-            
-            // Get the Calendar folder
-            try
+
+            // Get or create the Restore folder
+            if (bRestore)
             {
-                Console.WriteLine("Connecting to the Calendar.");
-                fldCal = Folder.Bind(exService, WellKnownFolderName.Calendar, new PropertySet(PropertySet.IdOnly));
+                GetRestoreFld();
             }
-            catch (ServiceResponseException ex)
+            else
             {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("");
-                Console.WriteLine("Could not connect to this user's mailbox or calendar.");
-                Console.WriteLine(ex.Message);
-                Console.ResetColor();
-                return;
+                // Get the Calendar folder
+                try
+                {
+                    Console.WriteLine("Connecting to the Calendar.");
+                    fldCal = Folder.Bind(exService, WellKnownFolderName.Calendar, new PropertySet(PropertySet.IdOnly));
+                }
+                catch (ServiceResponseException ex)
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine("");
+                    Console.WriteLine("Could not connect to this user's mailbox or calendar.");
+                    Console.WriteLine(ex.Message);
+                    Console.ResetColor();
+                    return;
+                }
             }
 
             if (!bRestore)
             {
                 // now go get the items and copy them to the backup folder.
-                Console.WriteLine("Starting the backup.");
+                Console.WriteLine("Copying all items from Calendar to the CalBackup folder.");
                 CopyItems(fldCal, fldCalBackup);
 
                 Console.WriteLine("\r\n");
@@ -170,17 +171,13 @@ namespace CalBackup
             }
             else
             {
-                bool bEmpty = false;
-                Console.WriteLine("Clearing Calendar folder before restore.");
-                bEmpty = EmptyFolder(fldCal);
-                Console.WriteLine("\r\nFinished clearing Calendar folder.");
-                Console.WriteLine("Restoring items to Calendar.");
-                CopyItems(fldCalBackup, fldCal);
+                Console.WriteLine("Restoring items to the CalRestore folder.");
+                CopyItems(fldCalBackup, fldCalRestore);
 
                 Console.WriteLine("\r\n");
-                Console.WriteLine("===============================================================");
-                Console.WriteLine("Restored " + cItems.ToString() + " items to the Calendar folder.");
-                Console.WriteLine("===============================================================");
+                Console.WriteLine("==================================================================");
+                Console.WriteLine("Restored " + cItems.ToString() + " items to the CalRestore folder.");
+                Console.WriteLine("==================================================================");
             }
 
             //Console.Write("Press a key to exit");
@@ -194,17 +191,16 @@ namespace CalBackup
             Console.WriteLine("=========");
             Console.WriteLine("CalBackup");
             Console.WriteLine("=========");
-            Console.WriteLine("Backs up Calendar Items to the CalBackup subfolder under the Calendar folder.\r\n");
+            Console.WriteLine("Backs up Calendar Items to the CalBackup subfolder under the Recoverable Items folder.\r\n");
         }
 
         public static void ShowHelp()
         {
             Console.WriteLine("Usage:");
-            Console.WriteLine("CalBackup [-M <SMTP Address>] [-H] [-R] [-?]");
+            Console.WriteLine("CalBackup [-M <SMTP Address>] [-R] [-?]");
             Console.WriteLine("");
             Console.WriteLine("-M   [Mailbox - will connect to the mailbox and perform the backup.]");
-            Console.WriteLine("-H   [Create and use a Hidden CalBackup subfolder under the Calendar folder.]");
-            Console.WriteLine("-R   [Restores items from the CalBackup folder back to the Calendar folder.]");
+            Console.WriteLine("-R   [Restores items from the CalBackup folder to the CalRestore folder.]");
             Console.WriteLine("-?   [Shows this usage information.]");
             Console.WriteLine("");
         }
@@ -217,6 +213,7 @@ namespace CalBackup
             int iPageSize = 500;
             FindItemsResults<Item> findResults = null;
             ItemView cView = new ItemView(iPageSize, iOffset, OffsetBasePoint.Beginning);
+            cView.OrderBy.Add(ItemSchema.LastModifiedTime, SortDirection.Descending);
             char[] cSpin = new char[] { '/', '-', '\\', '|' };
 
             while (bMore)
@@ -225,24 +222,31 @@ namespace CalBackup
                 int n = 0;
                 findResults = fldSrc.FindItems(cView);
 
-                foreach (Item item in findResults.Items)
+                if (!(findResults.Items.Count == 0))
                 {
-                    i++;
-                    if (i % 5 == 0)
+                    foreach (Item item in findResults.Items)
                     {
-                        Console.SetCursorPosition(0, Console.CursorTop);
-                        Console.Write("");
-                        Console.Write(cSpin[n % 4]);
-                        n++;
+                        i++;
+                        if (i % 5 == 0)
+                        {
+                            Console.SetCursorPosition(0, Console.CursorTop);
+                            Console.Write("");
+                            Console.Write(cSpin[n % 4]);
+                            n++;
+                        }
+                        item.Copy(fldDst.Id);
+                        cItems++;
                     }
-                    item.Copy(fldDst.Id);
-                    cItems++;
-                }
 
-                bMore = findResults.MoreAvailable;
-                if (bMore)
+                    bMore = findResults.MoreAvailable;
+                    if (bMore)
+                    {
+                        cView.Offset += iPageSize;
+                    }
+                }
+                else
                 {
-                    cView.Offset += iPageSize;
+                    Console.WriteLine("The source folder " + fldSrc.DisplayName + " is empty. Nothing to copy.");
                 }
             }
         }
@@ -250,17 +254,17 @@ namespace CalBackup
         // If not there - then it will create it. Otherwise finds it.
         public static void GetBackupFld()
         {
-            Folder fldBack = null;
-            Folder fld = new Folder(exService);
+            Folder fld = new CalendarFolder(exService);
             fld.DisplayName = "CalBackup";
+             
             bool bEmpty = false;
 
             if (!bRestore)
             {
                 try
                 {
-                    Console.WriteLine("Accessing the CalBackup folder.");
-                    fld.Save(WellKnownFolderName.Calendar);
+                    Console.WriteLine("Accessing/Creating the CalBackup folder.");
+                    fld.Save(WellKnownFolderName.RecoverableItemsRoot);
                 }
                 catch (ServiceResponseException ex)
                 {
@@ -275,31 +279,52 @@ namespace CalBackup
                     else
                     {
                         fld = FindFolder("CalBackup");
-                        Console.WriteLine("Removing previously backed up items.");
+                        Console.WriteLine("Removing previously backed up items from the CalBackup folder.");
                         bEmpty = EmptyFolder(fld);
-                        Console.WriteLine("\r\nFinished removing previous backup.");
+                        Console.WriteLine("\r\nFinished removing items from the CalBackup folder.");
                     }
                 }
-
-                if (bCreateHidden)
-                {
-                    ExtendedPropertyDefinition propHidden = new ExtendedPropertyDefinition(0x10f4, MapiPropertyType.Boolean);
-                    PropertySet pSet = new PropertySet(propHidden);
-                    fldBack = Folder.Bind(exService, fld.Id, pSet);
-                    fldBack.SetExtendedProperty(propHidden, true);
-                    fldBack.Update();
-                    fldCalBackup = fldBack;
-                }
-                else
-                {
-                    fldCalBackup = fld;
-                }
+                fldCalBackup = fld;
             }
             else
             {
-                Console.WriteLine("Accessing the CalBackup folder.");
+                Console.WriteLine("Accessing/Creating the CalBackup folder.");
                 fldCalBackup = FindFolder("CalBackup");
             }
+        }
+
+        // If not there - then it will create it. Otherwise finds it.
+        public static void GetRestoreFld()
+        {
+            CalendarFolder fld = new CalendarFolder(exService);
+            fld.DisplayName = "CalRestore";
+
+            bool bEmpty = false;
+
+            try
+            {
+                Console.WriteLine("Accessing/Creating the CalRestore folder.");
+                fld.Save(WellKnownFolderName.Calendar);
+            }
+            catch (ServiceResponseException ex)
+            {
+                if (!(ex.ErrorCode.ToString().ToUpper() == "ERRORFOLDEREXISTS"))
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine("");
+                    Console.WriteLine(ex.Message);
+                    Console.ResetColor();
+                    return;
+                }
+                else
+                {
+                    fld = FindCalFolder("CalRestore");
+                    Console.WriteLine("Removing previously restored items from the CalRestore folder.");
+                    bEmpty = EmptyFolder(fld);
+                    Console.WriteLine("\r\nFinished removing items from the CalRestore folder.");
+                }
+            }
+            fldCalRestore = fld;
         }
 
         public static bool EmptyFolder(Folder fld)
@@ -350,13 +375,56 @@ namespace CalBackup
             FolderView view = new FolderView(iPageSize, iOffset, OffsetBasePoint.Beginning);
             view.PropertySet = new PropertySet(BasePropertySet.IdOnly);
             view.PropertySet.Add(FolderSchema.DisplayName);
-            view.Traversal = FolderTraversal.Shallow;   // CalBackup should be a direct child of Calendar so Shallow should get it
+            view.Traversal = FolderTraversal.Shallow;   // should be a direct child so Shallow should get it
+
+            // go get the results and find our folder
+            while (bMore)
+            {
+                fFRes = exService.FindFolders(WellKnownFolderName.RecoverableItemsRoot, view);
+                foreach (Folder fld in fFRes)
+                {
+                    if (fld.DisplayName == strFolder)
+                    {
+                        fldSearch = fld;
+                        break;
+                    }
+                }
+                // break out of the while loop if we got the folder
+                if (fldSearch != null)
+                {
+                    break;
+                }
+                else
+                {
+                    bMore = fFRes.MoreAvailable;
+                    if (bMore)
+                    {
+                        view.Offset += iPageSize;
+                    }
+                }
+            }
+
+            return fldSearch;
+        }
+
+        public static CalendarFolder FindCalFolder(string strFolder)
+        {
+            CalendarFolder fldSearch = null;
+            FindFoldersResults fFRes = null;
+            int iPageSize = 100;
+            int iOffset = 0;
+            bool bMore = true;
+
+            FolderView view = new FolderView(iPageSize, iOffset, OffsetBasePoint.Beginning);
+            view.PropertySet = new PropertySet(BasePropertySet.IdOnly);
+            view.PropertySet.Add(FolderSchema.DisplayName);
+            view.Traversal = FolderTraversal.Shallow;   // should be a direct child so Shallow should get it
 
             // go get the results and find our folder
             while (bMore)
             {
                 fFRes = exService.FindFolders(WellKnownFolderName.Calendar, view);
-                foreach (Folder fld in fFRes)
+                foreach (CalendarFolder fld in fFRes)
                 {
                     if (fld.DisplayName == strFolder)
                     {
