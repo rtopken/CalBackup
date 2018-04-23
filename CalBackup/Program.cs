@@ -53,7 +53,16 @@ namespace CalBackup
                     }
                     if (args[i].ToUpper() == "-R" || args[i].ToUpper() == "/R")
                     {
-                        bRestore = true;
+                        if (args[i + 1].Contains("@")) // checking ot see if the next param is an email address
+                        {
+                            Console.WriteLine("You must use the -M switch with an smtp address to connect to that mailbox.");
+                            ShowHelp();
+                            return;
+                        }
+                        else
+                        {
+                            bRestore = true;
+                        }
                     }
                     if (args[i].ToUpper() == "-?" || args[i].ToUpper() == "/?") // display command switch help
                     {
