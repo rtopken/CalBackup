@@ -208,10 +208,25 @@ namespace CalBackup
             Console.WriteLine("Usage:");
             Console.WriteLine("CalBackup [-M <SMTP Address>] [-R] [-?]");
             Console.WriteLine("");
-            Console.WriteLine("-M   [Mailbox - will connect to the mailbox and perform the backup.]");
+            Console.WriteLine("-M   [Mailbox - will connect to a mailbox and perform the backup.]");
             Console.WriteLine("-R   [Restores items from the CalBackup folder to the CalRestore folder.]");
             Console.WriteLine("-?   [Shows this usage information.]");
             Console.WriteLine("");
+            Console.WriteLine("Examples:");
+            Console.WriteLine("=========");
+            Console.WriteLine("Use no command line switches to run the utility against your mailbox (no impersonation):");
+            Console.WriteLine("     CalBackup");
+            Console.WriteLine("");
+            Console.WriteLine("Backup a mailbox using Impersonation:");
+            Console.WriteLine("     CalBackup -M user@domain.com");
+            Console.WriteLine("");
+            Console.WriteLine("Restore items to the CalRestore folder in your mailbox:");
+            Console.WriteLine("     CalBackup -R");
+            Console.WriteLine("");
+            Console.WriteLine("Restore a mailbox using Impersonation:");
+            Console.WriteLine("     CalBackup -M user@domain.com -R");
+            Console.WriteLine("");
+
         }
 
         // Perform copying items from one folder to another
@@ -343,6 +358,8 @@ namespace CalBackup
             bool bMore = true;
             ItemView itemView = new ItemView(iPageSize, iOffset, OffsetBasePoint.Beginning);
             FindItemsResults<Item> results = null;
+            
+            
             char[] cSpin = new char[] { '/', '-', '\\', '|' };
             bool bRet = true;
 
@@ -361,7 +378,9 @@ namespace CalBackup
                         Console.Write(cSpin[n % 4]);
                         n++;
                     }
-                    item.Delete(DeleteMode.HardDelete);
+                    Appointment appt = item as Appointment;
+                    appt.Delete(DeleteMode.HardDelete, SendCancellationsMode.SendToNone);
+                    //item.Delete(DeleteMode.HardDelete);
                 }
                 bMore = results.MoreAvailable;
                 if (bMore)
